@@ -1,0 +1,43 @@
+{
+  "name": "api-auth-reverse-proxy",
+  "version": "1.0.0",
+  "description": "A stateless proxy to allow short-lived credentials against APIs requiring long-lived credentials",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "tsx --test tests/unit/*.test.ts tests/integration/*.test.ts tests/infrastructure/*.test.ts",
+    "auth": "tsx src/cli/index.ts",
+    "build": "tsx scripts/package-lambda.ts",
+    "deploy:cdk": "npm run build && cdk deploy --app 'npx tsx infrastructure/cdk/app.ts'",
+    "destroy:cdk": "cdk destroy --app 'npx tsx infrastructure/cdk/app.ts'",
+    "deploy:terraform": "npm run build && terraform -chdir=infrastructure/terraform init && terraform -chdir=infrastructure/terraform apply",
+    "destroy:terraform": "terraform -chdir=infrastructure/terraform init && terraform -chdir=infrastructure/terraform destroy",
+    "test:terraform": "terraform -chdir=infrastructure/terraform fmt -check -recursive && terraform -chdir=infrastructure/terraform init -backend=false && terraform -chdir=infrastructure/terraform validate && terraform -chdir=infrastructure/terraform test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/ThisIsNoZaku/api-auth-reverse-proxy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "3.1157.0",
+    "jose": "6.2.13",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.164",
+    "@types/node": "24.10.1",
+    "aws-cdk": "2.1146.1",
+    "aws-cdk-lib": "2.275.0",
+    "constructs": "10.8.1",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+cdk.out/
+.auth-keys/
+*.pem
+*.key
+*.jwt
+infrastructure/terraform/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+deployment.json
+coverage/

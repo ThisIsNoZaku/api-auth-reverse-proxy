@@ -1,0 +1,38 @@
+region      = "us-east-1"
+environment = "dev"
+
+# Replace with the JSON content of config/apis/example.json, updating the existing secret ARN.
+registry_json = <<-JSON
+[
+  {
+    "id": "example",
+    "baseUrl": "https://api.example.com",
+    "secretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:example-api-AbCdEf",
+    "authentication": {"type": "bearer"},
+    "routes": [
+      {
+        "path": "/status",
+        "methods": ["GET"],
+        "permissions": {"GET": ["status:read"]}
+      }
+    ]
+  }
+]
+JSON
+
+# Supply the public JWKS produced by the key generation command, never the private JWK.
+public_keys_json = <<-JSON
+{"keys":[{"kty":"OKP","kid":"replace-with-your-key-id","crv":"Ed25519","x":"replace-with-your-43-character-public-key","alg":"EdDSA","use":"sig"}]}
+JSON
+
+# For existing secrets encrypted with customer-managed KMS keys only:
+kms_key_arns = []
+
+issuer               = "local-token-issuer"
+audience             = "multi-api-proxy"
+memory_size          = 256
+timeout_seconds      = 30
+reserved_concurrency = 10
+rate_limit           = 20
+burst_limit          = 10
+log_retention_days   = 30

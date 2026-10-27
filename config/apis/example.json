@@ -1,0 +1,58 @@
+[
+  {
+    "id": "github",
+    "baseUrl": "https://api.github.com",
+    "secretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:github-REPLACE",
+    "authentication": { "type": "bearer" },
+    "maxPayloadBytes": 1000000,
+    "timeoutMs": 10000,
+    "routes": [
+      {
+        "path": "/repos/:owner/:repo/issues",
+        "methods": ["GET", "POST"],
+        "permissions": { "GET": ["issues:read"], "POST": ["issues:create"] },
+        "params": {
+          "owner": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,100}$" },
+          "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}$" }
+        },
+        "query": {
+          "allowed": ["state", "labels", "page"],
+          "unknown": "reject",
+          "parameters": {
+            "state": { "type": "string", "enum": ["open", "closed", "all"] },
+            "labels": { "type": "string", "maxLength": 200 },
+            "page": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        },
+        "headers": { "allowed": ["accept", "content-type", "x-github-api-version"], "unknown": "reject" },
+        "body": {
+          "mode": "json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "body": { "type": "string", "maxLength": 20000 },
+              "labels": { "type": "array", "items": { "type": "string", "maxLength": 50 }, "maxItems": 20 }
+            },
+            "required": ["title"],
+            "unknown": "reject"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "example-service",
+    "baseUrl": "https://api.example.com/v1",
+    "secretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:example-REPLACE",
+    "authentication": { "type": "apiKey", "header": "x-api-key", "secretField": "key" },
+    "routes": [
+      {
+        "path": "/data/:id",
+        "methods": ["GET", "HEAD"],
+        "permissions": { "GET": ["data:read"], "HEAD": ["data:read"] },
+        "params": { "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" } }
+      }
+    ]
+  }
+]
