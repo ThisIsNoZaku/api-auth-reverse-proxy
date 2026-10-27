@@ -9,6 +9,7 @@ import { createCredentials } from "../../src/proxy/credentials.js";
 import { evaluatePolicies, type PolicyContext } from "../../src/policies/engine.js";
 import { pathMatches } from "../../src/proxy/authorization.js";
 import type { ProxyClaims } from "../../src/auth/jwt.js";
+import { processResponse } from "../../src/proxy/response.js";
 
 function registry() {
   return validateRegistry(JSON.parse(readFileSync(new URL("../../config/apis/example.json", import.meta.url), "utf8")));
@@ -188,6 +189,13 @@ test("invalid UTF-8 JSON, missing required body, and failing custom validators a
   const invalid = event(undefined, "POST", "", Buffer.from([255]).toString("base64"));
   invalid.isBase64Encoded = true;
   assert.equal((await h.handler(invalid)).statusCode, 400);
+  const bom = event(undefined, "POST", "", '\ufeff{"title":"hello"}');
+  assert.equal((await h.handler(bom)).statusCode, 400);
+  const charset = event(undefined, "POST", "", '{"title":"hello"}');
+  charset.headers["content-type"] = "application/json; charset=iso-8859-1";
+  assert.equal((await h.handler(charset)).statusCode, 415);
+  charset.headers["content-type"] = "application/json; charset=utf-8; charset=utf-8";
+  assert.equal((await h.handler(charset)).statusCode, 415);
   apis[0].routes[0].validate = () => false;
   assert.equal((await h.handler(event(undefined, "POST", "", '{"title":"hello"}'))).statusCode, 403);
   assert.equal(h.credentialReads(), 0);
@@ -210,4 +218,41 @@ test("Secrets Manager cache expires, handles rotation, single-flights and reject
   const retry = createCredentials(async () => { if (!failures++) throw new Error("offline"); return { SecretString: "recovered" }; });
   await assert.rejects(() => retry.get(api));
   assert.equal(await retry.get(api), "recovered");
+});
+
+test("response filters receive safe headers, are size bounded, and do not manufacture HEAD/204 bodies", async () => {
+  const api = registry()[0] as Api;
+  let filtered = 0;
+  api.filterResponse = (body, headers) => {
+    filtered++;
+    assert.equal(headers.get("set-cookie"), null);
+    return Buffer.from(body.toString().replace("private", "filtered"));
+  };
+  const response = await processResponse(api, new Response("private data", { headers: { "content-type": "text/plain", "set-cookie": "unsafe" } }), "GET");
+  assert.equal(Buffer.from(response.body!, "base64").toString(), "filtered data");
+  assert.equal((await processResponse(api, new Response("ignored"), "HEAD")).body, "");
+  assert.equal((await processResponse(api, new Response(null, { status: 204 }), "POST")).body, "");
+  assert.equal(filtered, 1);
+  api.filterResponse = () => Buffer.alloc(api.maxResponseBytes + 1);
+  await assert.rejects(() => processResponse(api, new Response("data"), "GET"), /upstream_response_too_large/);
+  api.filterResponse = () => { throw new Error("sensitive upstream exception"); };
+  const handler = createHandler({
+    registry: [api], verify: async () => claims,
+    credentials: { get: async () => "test-only", invalidate() {} },
+    fetcher: async () => new Response("data"),
+  });
+  const result = await handler(event());
+  assert.equal(result.statusCode, 502);
+  assert.equal(result.body, '{"error":"upstream_unavailable"}');
+});
+
+test("multibyte JSON payloads are size checked in UTF-8 bytes and numeric negative zero is normalized", async () => {
+  const apis = registry() as Api[];
+  apis[0].maxPayloadBytes = 100;
+  const h = harness(apis);
+  assert.equal((await h.handler(event(undefined, "POST", "", JSON.stringify({ title: "界".repeat(40) })))).statusCode, 413);
+  assert.equal(h.credentialReads(), 0);
+  apis[0].routes[0].query!.parameters!.page = { type: "integer", minimum: 0 };
+  const constrained = harness(apis, { ...claims, constraints: { query: { page: [0] } } });
+  assert.equal((await constrained.handler(event(undefined, "GET", "page=-0"))).statusCode, 201);
 });

@@ -118,7 +118,8 @@ encoded slashes, backslashes, percent escapes after decoding, dot segments,
 control characters, or duplicate separators. Duplicate query names (including
 encoded aliases), malformed encoding, duplicate JSON object keys (including
 escaped aliases), prototype keys, non-finite numbers and unsafe integers are
-rejected. JSON parsing has depth/node limits. JSON must be valid UTF-8.
+rejected. JSON parsing has depth/node limits. JSON must be valid UTF-8 without a
+BOM; conflicting/non-UTF-8 charsets and non-identity JSON content encodings fail.
 
 ### Combined policies
 

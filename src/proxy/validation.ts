@@ -13,12 +13,24 @@ export interface ValidatedRequest {
   rawQuery: string;
 }
 
+function validateBodyHeaders(route: Route, headers: Record<string, string>, status: number): void {
+  const [mediaType, ...parameters] = (headers["content-type"] ?? "").toLowerCase().split(";").map((p) => p.trim());
+  const code = status === 500 ? "unsafe_transformation" : "unsupported_content_type";
+  reject(!route.body?.contentTypes || route.body.contentTypes.includes(mediaType), status, code);
+  if (route.body?.mode === "json") {
+    const charsets = parameters.filter((p) => /^charset\s*=/.test(p));
+    reject((mediaType === "application/json" || /^application\/[a-z0-9!#$&^_.+-]+\+json$/.test(mediaType)) &&
+      charsets.length <= 1 && charsets.every((p) => /^charset\s*=\s*(?:utf-8|"utf-8")$/.test(p)) &&
+      (!headers["content-encoding"] || headers["content-encoding"].toLowerCase() === "identity"), status, code);
+  }
+}
+
 function typed(value: string, schema?: Schema): unknown {
   if (!schema) return value;
   let input: unknown = value;
   if (schema.type === "number" || schema.type === "integer") {
     reject(/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value), 400, "invalid_parameter");
-    input = Number(value);
+    input = Number(value) || 0;
   } else if (schema.type === "boolean") {
     reject(value === "true" || value === "false", 400, "invalid_parameter");
     input = value === "true";
@@ -68,18 +80,18 @@ export function validateRequest(event: APIGatewayProxyEventV2, api: Api, route: 
   reject((route.headers?.required ?? []).every((h) => Object.hasOwn(context.headers, h)), 400, "missing_header");
   let body: Buffer | undefined;
   if (event.body !== undefined && event.body !== "") {
-    reject(event.body.length <= Math.ceil(api.maxPayloadBytes / 3) * 4 + 4, 413, "payload_too_large");
+    const inputSize = event.isBase64Encoded ? event.body.length : Buffer.byteLength(event.body, "utf8");
+    const inputLimit = event.isBase64Encoded ? Math.ceil(api.maxPayloadBytes / 3) * 4 : api.maxPayloadBytes;
+    reject(inputSize <= inputLimit, 413, "payload_too_large");
     if (event.isBase64Encoded) reject(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(event.body), 400, "invalid_body_encoding");
     body = Buffer.from(event.body, event.isBase64Encoded ? "base64" : "utf8");
     reject(body.length <= api.maxPayloadBytes, 413, "payload_too_large");
     reject(context.method !== "GET" && context.method !== "HEAD", 400, "body_not_allowed");
     reject(route.body, 400, "body_not_allowed");
-    const contentType = (context.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
-    reject(!route.body.contentTypes || route.body.contentTypes.includes(contentType), 415, "unsupported_content_type");
+    validateBodyHeaders(route, context.headers, 415);
     if (route.body.mode === "json") {
-      reject(contentType === "application/json" || /^application\/[a-z0-9!#$&^_.+-]+\+json$/.test(contentType), 415, "json_required");
       let text: string;
-      try { text = new TextDecoder("utf-8", { fatal: true }).decode(body); }
+      try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(body); }
       catch { reject(false, 400, "invalid_body_encoding"); }
       const parsed = parseJson(text);
       const result = compileSchema(route.body.schema!).safeParse(parsed);
@@ -124,13 +136,7 @@ export function applyTransform(request: ValidatedRequest, route: Route): Validat
     transformed.body = result.data;
     body = Buffer.from(JSON.stringify(result.data));
   }
-  if (body && route.body) {
-    const contentType = (headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
-    reject(!route.body.contentTypes || route.body.contentTypes.includes(contentType), 500, "unsafe_transformation");
-    if (route.body.mode === "json") {
-      reject(contentType === "application/json" || /^application\/[a-z0-9!#$&^_.+-]+\+json$/.test(contentType), 500, "unsafe_transformation");
-    }
-  }
+  if (body) validateBodyHeaders(route, headers, 500);
   return {
     context: { ...transformed, headers, query: typedQuery },
     rawQuery: isDeepStrictEqual(transformed.query, original.query) ? request.rawQuery : new URLSearchParams(query).toString(),
